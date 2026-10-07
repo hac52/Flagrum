@@ -1,16 +1,14 @@
-name: Build for Fork (No Deploy)
+name: Build Setup EXE for Fork
 
 on: workflow_dispatch
 
 jobs:
-  deploy:
-    name: Build Flagrum
+  build-installer:
+    name: Create Flagrum Installer
     runs-on: windows-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Extract Flagrum Version
         id: setup
@@ -26,29 +24,24 @@ jobs:
       - name: Install .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.x # Behält die im originalen Repo geforderte Version bei
+          dotnet-version: 10.0.x
 
-      # Der Schritt mit dem "Premium DLL Package Source" wurde entfernt, da er Kizari-Passwörter verlangt.
-      # Der Build wird hier ohne das Flag "-p:UsePremiumPackageSource=true" ausgeführt.
+      # Kompiliert das Hauptprojekt ohne die private Premium-Paketquelle
       - name: Publish Windows Build
         run: dotnet publish src/Flagrum/Flagrum.csproj -c Release -o publish-win-x64 -r win-x64 --self-contained true
 
-      - name: Build Launcher
-        run: dotnet publish src/Flagrum.Launcher/Flagrum.Launcher.csproj -c Release -r win-x64 --self-contained true -p:PublishTrimmed=true -p:PublishSingleFile=true -o publish-launcher
-
-      # Sammelt die gebauten Dateien in einen gemeinsamen Ordner zum Herunterladen
-      - name: Prepare Artifact Folder
-        shell: pwsh
+      # Generiert die unskalierte/unsignierte Setup-EXE über Velopack (vpk)
+      - name: Create Velopack Installer
         run: |
-          New-Item -ItemType Directory -Force -Path ./Flagrum_Output
-          Copy-Item -Path ./publish-win-x64/* -Destination ./Flagrum_Output/ -Recurse
-          if (Test-Path ./publish-launcher/Flagrum.Launcher.exe) {
-            Copy-Item -Path ./publish-launcher/Flagrum.Launcher.exe -Destination ./Flagrum_Output/
+          dotnet tool install -g vpk
+          vpk [win] pack -u Flagrum -v ${{ steps.setup.outputs.version }} -p publish-win-x64 -e Flagrum.exe -s .github/Images/Splash.png -i src/Flagrum/Resources/Flagrum.ico --packAuthors "Fork-Developer" --packTitle Flagrum --exclude .*\.zzzzz --framework webview2 --channel win --runtime win-x64
+          if (Test-Path Releases/Flagrum-win-Setup.exe) {
+            mv Releases/Flagrum-win-Setup.exe Releases/Flagrum-win-x64.exe
           }
 
-      # Lädt das fertige Programm als ZIP-Datei unter den GitHub-Actions hoch
-      - name: Upload Build Artifact
+      # Lädt den fertigen Installer sowie die Update-Pakete als GitHub-Artefakt hoch
+      - name: Upload Installer Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Flagrum-Windows-Fork-Build
-          path: ./Flagrum_Output/
+          name: Flagrum-Setup-EXE
+          path: Releases/
